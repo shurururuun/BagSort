@@ -1,0 +1,18 @@
+## Interface: 120100
+## Title: BagSort
+## Notes: Sorts and stacks items in your bags or bank.
+## Author: Shururu
+## Version: @project-version@ (@project-abbreviated-hash@)
+## Category: Bags & Inventory
+## IconTexture: Interface\Icons\INV_Misc_Bag_08
+## SavedVariables: BagSortDB
+## OptionalDeps: Ace3, Baganator, ElvUI
+## X-License: BSD 3-Clause License
+
+Libs\Libs.xml
+Core.lua
+Sort.lua
+CategoryOrder.lua
+Options.lua
+Broker.lua
+Baganator.lua
