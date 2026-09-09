@@ -830,18 +830,18 @@ end
 -- everything about the run that changes
 local function RunState()
     return table.concat({
-        run.phase, run.gi, run.pass, run.relocIndex or 0, run.moves, run.waits,
-        run.queue and #run.queue or -1, run.batchLockWaits or 0, run.batchWaiting and 1 or 0,
+        run.phase, run.gi, run.pass, run.relocIndex or 0, run.moves, run.queue and #run.queue or -1,
     }, ":")
 end
 
 -- failsafe, one sample per second
-function BagSort:Watchdog()
+local function WatchdogStep(self)
     if not run then return end
     if InCombatLockdown() then return end  -- Tick() ends the run itself, and it runs ten times as often
 
     if run.moves ~= run.stallMoves then
         run.stallMoves, run.stalls, run.nudges = run.moves, 0, 0
+        run.stallState = RunState()
         return
     end
     local state = RunState()
@@ -869,6 +869,16 @@ function BagSort:Watchdog()
     Replan()
 end
 
+-- Tick() wraps its own step because an error thrown on a timer would otherwise never be seen:
+-- AceTimer runs the callback and only re-arms a repeating timer after it returns
+function BagSort:Watchdog()
+    local ok, err = pcall(WatchdogStep, self)
+    if not ok then
+        self:Printf("|cffff4040error|r %s", tostring(err))
+        self:Print("run /sort debug and report the output.")
+        if run then Finish("stopped after an error.") end
+    end
+end
 
 -- ================ --
 -- Public Interface --
