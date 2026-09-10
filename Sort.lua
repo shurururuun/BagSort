@@ -16,9 +16,8 @@ local BankType = ns.BankType
 
 local DB, Debug, Scopes = ns.DB, ns.Debug, ns.Scopes
 local DebugDetail = ns.DebugDetail
-local ItemMeta, ItemLevel, MaxStack = ns.ItemMeta, ns.ItemLevel, ns.MaxStack
+local ItemMeta = ns.ItemMeta
 local SortKeys, KeyLess = ns.SortKeys, ns.KeyLess
-local StackSignature = ns.StackSignature
 local FitsBag, FitsBankTab, RefusedKey, refused = ns.FitsBag, ns.FitsBankTab, ns.RefusedKey, ns.refused
 local BuildGroups, BuildBankGroups, BagFamily = ns.BuildGroups, ns.BuildBankGroups, ns.BagFamily
 local BankTabBags, TabIsIgnored, FetchBankTabs = ns.BankTabBags, ns.TabIsIgnored, ns.FetchBankTabs
@@ -26,7 +25,7 @@ local DetectBankType, GuildBankOpen = ns.DetectBankType, ns.GuildBankOpen
 local DepositFlagSpecificity = ns.DepositFlagSpecificity
 local Positions, Scan, SetVirtualState = ns.Positions, ns.Scan, ns.SetVirtualState
 local VirtualSnapshot, VirtualSet = ns.VirtualSnapshot, ns.VirtualSet
-local RebuildGearSetItems, ForgetProvisional = ns.RebuildGearSetItems, ns.ForgetProvisional
+local ForgetProvisional = ns.ForgetProvisional
 
 local MAX_PASSES   = 20    -- scan/plan rounds per container group before giving up
 local LOCK_RETRIES = 40    -- ticks to wait for the server to unlock a slot
@@ -287,11 +286,8 @@ local function PlanLayout(items, positions, S)
         end
     end
 
-    -- Walk forwards, so the first target slot is filled first: once a slot holds its target stack it is never
-    -- touched again - no other slot wants that stack - so every swap needs exactly one move either way. slotAt is
-    -- increasing, so this is still front to back; it just steps over the gap. A stack sitting inside the range
-    -- Empty wants left clear is never a target slot's "want", so it is picked up by whichever later slot does
-    -- want it, and the gap is empty once the walk ends.
+    -- walk forwards, so the first tarfget slot is filled first
+    -- once a slot holds its tagret stack it is never touched again
     for rank = 1, #sorted do
         local i = slotAt[rank]
         local want = assign[i]
@@ -506,11 +502,13 @@ local function ApplyVirtualMove(mv)
         local left = src.count - amount
         VirtualSet(mv.sBag, mv.sSlot, left > 0 and {
             itemID = src.itemID, name = src.name, count = left, quality = src.quality,
-            ilvl = src.ilvl, bound = src.bound, maxStack = src.maxStack, sig = src.sig,
+            ilvl = src.ilvl, bound = src.bound, gearSet = src.gearSet,
+            maxStack = src.maxStack, sig = src.sig,
         } or nil)
         VirtualSet(mv.dBag, mv.dSlot, {
             itemID = dst.itemID, name = dst.name, count = dst.count + amount, quality = dst.quality,
-            ilvl = dst.ilvl, bound = dst.bound, maxStack = dst.maxStack, sig = dst.sig,
+            ilvl = dst.ilvl, bound = dst.bound, gearSet = dst.gearSet,
+            maxStack = dst.maxStack, sig = dst.sig,
         })
     else
         VirtualSet(mv.dBag, mv.dSlot, src)
@@ -529,29 +527,19 @@ local function PlanAll()
     end
 
     -- seed the snapshot from a scan of every slot touched
-    SetVirtualState({})
     local positionSets = {}
     if run.relocating then
         for _, t in ipairs(run.relocSources) do positionSets[#positionSets + 1] = { t.bagID } end
     end
     for _, g in ipairs(run.groups) do positionSets[#positionSets + 1] = g end
+    local state = {}
     for _, posSet in ipairs(positionSets) do
-        for _, p in ipairs(Positions(posSet)) do
-            local info = Container.GetContainerItemInfo(p.bag, p.slot)
-            local itemID = info and tonumber(info.itemID)
-            if itemID then
-                local ilvl = ItemLevel(info.hyperlink)
-                local quality = tonumber(info.quality) or 1
-                local bound = info.isBound and true or false
-                VirtualSet(p.bag, p.slot, {
-                    itemID = itemID, name = info.itemName, count = tonumber(info.stackCount) or 1,
-                    quality = quality, ilvl = ilvl, bound = bound,
-                    maxStack = MaxStack(p.bag, p.slot, itemID),
-                    sig = StackSignature(itemID, ilvl, quality, bound, info.itemName),
-                })
-            end
+        for _, it in ipairs(Scan(Positions(posSet))) do
+            state[it.bag] = state[it.bag] or {}
+            state[it.bag][it.slot] = it
         end
     end
+    SetVirtualState(state)
 
     -- bank category relocation pre-pass, tab by tab
     if run.relocating then
@@ -966,7 +954,6 @@ local function Begin(resume)
         BagSort:Print("in combat, sorting when it ends.")
         return false
     end
-    RebuildGearSetItems()
     ForgetProvisional()
     beginResume = resume
     return true

@@ -356,23 +356,45 @@ local Scopes = {
     bank = {},
 }
 
--- gear set items
-local gearSetItemIDs = {}
+-- gear set slots
+local gearSetSlots = {}
 
-local function RebuildGearSetItems()
-    gearSetItemIDs = {}
+-- asking a gear set for its locations can crash a Mac client when the item is invalid or the client has no local data
+local function MacCrashRisk(EquipmentSet, setID)
+    if not (IsMacClient and IsMacClient()) then return false end
+    if not (EquipmentSet.GetItemIDs and Item.GetItemInfoInstant) then return true end
+    for _, itemID in pairs(EquipmentSet.GetItemIDs(setID) or {}) do
+        if itemID and itemID ~= 0 and not Item.GetItemInfoInstant(itemID) then return true end
+    end
+    return false
+end
+
+-- bag/slot for one packed location out of C_EquipmentSet.GetItemLocations - nil for anything that is not in a bag
+local function GearSetBagSlot(location)
+    if type(location) ~= "number" or location <= 1 then return nil end
+    if EquipmentManager_GetLocationData then
+        local data = EquipmentManager_GetLocationData(location)
+        if data and data.isBags then return data.bag, data.slot end
+    elseif EquipmentManager_UnpackLocation then
+        local _, _, bags, _, slot, bag = EquipmentManager_UnpackLocation(location)
+        if bags then return bag, slot end
+    end
+    return nil
+end
+
+local function RebuildGearSetSlots()
+    gearSetSlots = {}
     local EquipmentSet = C_EquipmentSet
-    if not (EquipmentSet and EquipmentSet.GetEquipmentSetIDs and EquipmentSet.GetItemIDs) then return end
-    for _, setID in ipairs(EquipmentSet.GetEquipmentSetIDs()) do
-        local itemIDs = EquipmentSet.GetItemIDs(setID)
-        if itemIDs then
-            for _, itemID in pairs(itemIDs) do
-                if itemID and itemID ~= 0 then gearSetItemIDs[itemID] = true end
+    if not (EquipmentSet and EquipmentSet.GetEquipmentSetIDs and EquipmentSet.GetItemLocations) then return end
+    for _, setID in ipairs(EquipmentSet.GetEquipmentSetIDs() or {}) do
+        if not MacCrashRisk(EquipmentSet, setID) then
+            for _, location in pairs(EquipmentSet.GetItemLocations(setID) or {}) do
+                local bag, slot = GearSetBagSlot(location)
+                if bag and slot then gearSetSlots[bag * 1000 + slot] = true end
             end
         end
     end
 end
-ns.RebuildGearSetItems = RebuildGearSetItems
 
 -- fills one Scopes[scope] table from the profile under orderKey/settingsKey.
 local function RebuildScope(scope, orderKey, settingsKey)
@@ -441,7 +463,7 @@ end
 -- name the client shows for a default class
 local categoryNames = {}
 
--- custom class names
+-- custom category names
 local SENTINEL_NAME = {
     [DEFAULT_CATEGORY_KEY]      = "Default",
     [JUNK_CATEGORY_KEY]         = "Junk",
@@ -555,6 +577,7 @@ end
 
 local function StackSignature(itemID, ilvl, quality, bound, name)
     local sig = itemID .. ":" .. ilvl .. ":" .. quality
+    if gearSet then sig = sig .. ":g" end
     if not bound then return sig end
     local meta = ItemMeta(itemID, name)
     if meta.classID == ARMOR_CLASS or meta.classID == WEAPON_CLASS then return sig .. ":b" end
@@ -641,7 +664,7 @@ local function EquippedItemLevelForEquipLoc(equipLoc)
     return lowest
 end
 
-local function IsLowLevelSoulbound(itemID, ilvl, bound, threshold, equipLoc)
+local function IsLowLevelSoulbound(itemID, ilvl, bound, gearSet, threshold, equipLoc)
     if not bound then
         DebugDetail("ilvl: item %d is not bound - skipped", itemID)
         return false
@@ -650,7 +673,7 @@ local function IsLowLevelSoulbound(itemID, ilvl, bound, threshold, equipLoc)
         DebugDetail("ilvl: item %d has no item level - skipped", itemID)
         return false
     end
-    if gearSetItemIDs[itemID] then
+    if gearSet then
         DebugDetail("ilvl: item %d is in a gear set - skipped", itemID)
         return false
     end
@@ -671,27 +694,24 @@ local function FieldValue(fieldKey, it, meta)
     return field.get(it, meta), field.ascending
 end
 
-local function EffectiveRank(itemID, classID, quality, bound, subclassID, ilvl, equipLoc, S)
-    -- Traced ahead of every early-out below, not just inside IsLowLevelSoulbound - S.junkEnabled being false,
-    -- includeLowLevel being off, or the item simply not being bound all skip that function's call entirely, and
-    -- each of those would otherwise leave a player debugging one slot looking at silence with no clue why.
+local function EffectiveRank(itemID, classID, quality, bound, gearSet, subclassID, ilvl, equipLoc, S)
     DebugDetail("ilvl: item %d, class %s:%s, quality %d, bound %s, ilvl %d - junkEnabled %s, includeLowLevel %s, threshold %s",
         itemID, tostring(classID), tostring(subclassID), quality or -1, tostring(bound), ilvl or -1,
         tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkSettings.includeLowLevel),
         tostring(S.junkEnabled and S.junkSettings.lowLevelThreshold))
-    -- A player's own custom category wins over every other precedence here, Hearthstone/Gear Set/Soulbound Gear
-    -- included - an item the player deliberately added is never second-guessed by a built-in sentinel that would
-    -- otherwise have claimed it too.
+
+    -- player's own custom categories win over every other category
     for _, custom in ipairs(S.customCategories) do
         local pos = custom.posOf[itemID]
         if pos then return custom.rank, custom.settings, pos end
     end
+
     if S.hearthstoneEnabled and HEARTHSTONE_ITEM_IDS[itemID] then return S.hearthstoneRank, S.hearthstoneSettings end
-    if S.gearSetEnabled and gearSetItemIDs[itemID] then return S.gearSetRank, S.gearSetSettings end
+    if S.gearSetEnabled and gearSet then return S.gearSetRank, S.gearSetSettings end
     if S.junkEnabled and S.junkSettings.includeUnusableSoulbound and IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc) then
         return S.junkRank, S.junkSettings
     end
-    if S.junkEnabled and S.junkSettings.includeLowLevel and IsLowLevelSoulbound(itemID, ilvl, bound, S.junkSettings.lowLevelThreshold, equipLoc) then
+    if S.junkEnabled and S.junkSettings.includeLowLevel and IsLowLevelSoulbound(itemID, ilvl, bound, gearSet, S.junkSettings.lowLevelThreshold, equipLoc) then
         return S.junkRank, S.junkSettings
     end
     if S.soulboundEnabled and bound and (classID == ARMOR_CLASS or classID == WEAPON_CLASS) then
@@ -703,7 +723,7 @@ end
 
 local function SortKey(it, S)
     local meta = ItemMeta(it.itemID, it.name)
-    local rank, settings, customPos = EffectiveRank(it.itemID, meta.classID, it.quality, it.bound, meta.subclassID, it.ilvl, meta.equipLoc, S)
+    local rank, settings, customPos = EffectiveRank(it.itemID, meta.classID, it.quality, it.bound, it.gearSet, meta.subclassID, it.ilvl, meta.equipLoc, S)
     if customPos then
         return { it = it, rank = rank, v1 = customPos, a1 = not settings.reverse }
     end
@@ -785,6 +805,7 @@ local function BuildGroups()
     if #generic > 0 then groups[#groups + 1] = generic end
     return groups
 end
+
 
 -- ==== --
 -- Bank --
@@ -1136,6 +1157,7 @@ end
 
 local function Scan(positions)
     local items, locked = {}, false
+    if not virtualState then RebuildGearSetSlots() end
     for i = 1, #positions do
         local p = positions[i]
         if virtualState then
@@ -1144,7 +1166,8 @@ local function Scan(positions)
                 items[#items + 1] = {
                     index = i, bag = p.bag, slot = p.slot,
                     itemID = snap.itemID, name = snap.name, count = snap.count, quality = snap.quality,
-                    ilvl = snap.ilvl, bound = snap.bound, maxStack = snap.maxStack, sig = snap.sig,
+                    ilvl = snap.ilvl, bound = snap.bound, gearSet = snap.gearSet,
+                    maxStack = snap.maxStack, sig = snap.sig,
                 }
             end
         else
@@ -1158,6 +1181,7 @@ local function Scan(positions)
                 local ilvl  = ItemLevel(info.hyperlink)
                 local quality = tonumber(info.quality) or 1
                 local bound = info.isBound and true or false
+                local gearSet = gearSetSlots[p.bag * 1000 + p.slot] or false
                 items[#items + 1] = {
                     index    = i,
                     bag      = p.bag,
@@ -1168,8 +1192,9 @@ local function Scan(positions)
                     quality  = quality,
                     ilvl     = ilvl,
                     bound    = bound,
+                    gearSet  = gearSet,
                     maxStack = MaxStack(p.bag, p.slot, itemID),
-                    sig      = StackSignature(itemID, ilvl, quality, bound, info.itemName),
+                    sig      = StackSignature(itemID, ilvl, quality, bound, gearSet, info.itemName),
                 }
             end
         end
@@ -1185,7 +1210,6 @@ ns.Positions, ns.Scan = Positions, Scan
 ns.DB, ns.Debug, ns.DebugDetail, ns.Scopes = DB, Debug, DebugDetail, Scopes
 ns.ItemMeta, ns.ItemLevel, ns.MaxStack = ItemMeta, ItemLevel, MaxStack
 ns.SortKeys, ns.KeyLess = SortKeys, KeyLess
-ns.StackSignature = StackSignature
 ns.FitsBag, ns.FitsBankTab, ns.RefusedKey, ns.refused = FitsBag, FitsBankTab, RefusedKey, refused
 ns.BuildGroups, ns.BuildBankGroups, ns.BagFamily = BuildGroups, BuildBankGroups, BagFamily
 ns.BankType, ns.BankTabBags, ns.TabIsIgnored, ns.FetchBankTabs = BankType, BankTabBags, TabIsIgnored, FetchBankTabs
