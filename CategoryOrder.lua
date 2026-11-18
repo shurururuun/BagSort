@@ -941,6 +941,7 @@ local function BuildDetail(self, parent)
     lowLevelCheck:SetLabel("Include low level soulbound")
     lowLevelCheck:SetCallback("OnValueChanged", function(_, _, value)
         WriteSetting(self, "includeLowLevel", value and true or false)
+        RefreshDetail(self)
     end)
     detail.lowLevelCheck = lowLevelCheck
 
