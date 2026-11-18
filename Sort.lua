@@ -502,12 +502,12 @@ local function ApplyVirtualMove(mv)
         local left = src.count - amount
         VirtualSet(mv.sBag, mv.sSlot, left > 0 and {
             itemID = src.itemID, name = src.name, count = left, quality = src.quality,
-            ilvl = src.ilvl, bound = src.bound, gearSet = src.gearSet,
+            ilvl = src.ilvl, bound = src.bound, gearSet = src.gearSet, vendorJunk = src.vendorJunk,
             maxStack = src.maxStack, sig = src.sig,
         } or nil)
         VirtualSet(mv.dBag, mv.dSlot, {
             itemID = dst.itemID, name = dst.name, count = dst.count + amount, quality = dst.quality,
-            ilvl = dst.ilvl, bound = dst.bound, gearSet = dst.gearSet,
+            ilvl = dst.ilvl, bound = dst.bound, gearSet = dst.gearSet, vendorJunk = dst.vendorJunk,
             maxStack = dst.maxStack, sig = dst.sig,
         })
     else

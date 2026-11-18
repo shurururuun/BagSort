@@ -6,7 +6,7 @@
 ## Category: Bags & Inventory
 ## IconTexture: Interface\Icons\INV_Misc_Bag_08
 ## SavedVariables: BagSortDB
-## OptionalDeps: Ace3, Baganator, ElvUI
+## OptionalDeps: Ace3, Baganator, ElvUI, Vendor
 ## X-License: BSD 3-Clause License
 
 Libs\Libs.xml

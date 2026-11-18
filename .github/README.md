@@ -53,6 +53,8 @@ This addon has been tested and made compatible with other addons:
    * Baganator: Hooks into Baganator as a selectable sort routine. Bank sorting is dependent if a tab is visible, 
      or the whole bank is visible. 
    * ElvUI: Detection logic if a single bank tab, or the whole bank is currently visible.
+   * Vendor: Items that Vendor would sell or destroy go into the Junk category.
+     Can be disabled in the Junk category settings ("Include the Vendor addon's sell list").
 
 Not tested with any other addons.
 

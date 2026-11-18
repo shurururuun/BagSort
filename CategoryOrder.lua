@@ -691,6 +691,7 @@ function RefreshDetail(self)
         self.detail.title:Hide()
         self.detail.enabledCheck.frame:Hide()
         self.detail.reverseCheck.frame:Hide()
+        self.detail.vendorCheck.frame:Hide()
         self.detail.unusableSoulboundCheck.frame:Hide()
         self.detail.lowLevelCheck.frame:Hide()
         self.detail.lowLevelThresholdInput.frame:Hide()
@@ -730,6 +731,11 @@ function RefreshDetail(self)
     reverseCheck:SetDisabled(self.disabled)
 
     local isJunk = (key == ns.JUNK_CATEGORY_KEY)
+    local vendorCheck = self.detail.vendorCheck
+    vendorCheck.frame:SetShown(isJunk)
+    vendorCheck:SetValue(settings.includeVendor)
+    vendorCheck:SetDisabled(self.disabled or not ns.VendorAPI())
+
     local unusableSoulboundCheck = self.detail.unusableSoulboundCheck
     unusableSoulboundCheck.frame:SetShown(isJunk)
     unusableSoulboundCheck:SetValue(settings.includeUnusableSoulbound)
@@ -824,6 +830,7 @@ function RefreshDetail(self)
         { top = d.nameLabel, bottom = d.nameBox, shown = isCustom, dx = 2, dy = -6 },
         { top = enabledCheck.frame, shown = true, dx = -2, dy = -10 },
         { top = reverseCheck.frame, shown = not isEmpty, dx = 0, dy = 0 },
+        { top = vendorCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
         { top = unusableSoulboundCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
         { top = lowLevelCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
         { top = lowLevelThresholdInput.frame, shown = isJunk and settings.includeLowLevel, dx = 2, dy = -10 },
@@ -922,10 +929,21 @@ local function BuildDetail(self, parent)
     end)
     detail.reverseCheck = reverseCheck
 
+    local vendorCheck = AceGUI:Create("CheckBox")
+    vendorCheck.frame:SetParent(parent)
+    vendorCheck.frame:ClearAllPoints()
+    vendorCheck:SetPoint("TOPLEFT", reverseCheck.frame, "BOTTOMLEFT", 0, 0)
+    vendorCheck:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    vendorCheck:SetLabel("Include the Vendor addon's sell list")
+    vendorCheck:SetCallback("OnValueChanged", function(_, _, value)
+        WriteSetting(self, "includeVendor", value and true or false)
+    end)
+    detail.vendorCheck = vendorCheck
+
     local unusableSoulboundCheck = AceGUI:Create("CheckBox")
     unusableSoulboundCheck.frame:SetParent(parent)
     unusableSoulboundCheck.frame:ClearAllPoints()
-    unusableSoulboundCheck:SetPoint("TOPLEFT", reverseCheck.frame, "BOTTOMLEFT", 0, 0)
+    unusableSoulboundCheck:SetPoint("TOPLEFT", vendorCheck.frame, "BOTTOMLEFT", 0, 0)
     unusableSoulboundCheck:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
     unusableSoulboundCheck:SetLabel("Include unusable soulbound items")
     unusableSoulboundCheck:SetCallback("OnValueChanged", function(_, _, value)

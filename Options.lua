@@ -312,7 +312,10 @@ local options = {
                             and "|cff20ff20detected|r" or "|cff808080not detected|r"
                         local ldb = (LibStub and LibStub("LibDataBroker-1.1", true))
                             and "|cff20ff20available|r" or "|cff808080not available|r"
-                        return ("Baganator sort integration: %s\nLibDataBroker data feed: %s\n"):format(baganator, ldb)
+                        local vendor = ns.VendorAPI()
+                            and "|cff20ff20detected|r" or "|cff808080not detected|r"
+                        return ("Baganator sort integration: %s\nVendor sell list (Junk): %s\nLibDataBroker data feed: %s\n")
+                            :format(baganator, vendor, ldb)
                     end,
                 },
             },

@@ -212,7 +212,7 @@ local DEFAULT_CATEGORY_SETTINGS = {
 
 -- per-category sort order overrides for a default profile
 local BUILTIN_CATEGORY_SETTINGS = {
-    [JUNK_CATEGORY_KEY] = { primary = "value", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD, includeUnusableSoulbound = false, includeLowLevel = false, lowLevelThreshold = 50 },
+    [JUNK_CATEGORY_KEY] = { primary = "value", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD, includeUnusableSoulbound = false, includeLowLevel = false, lowLevelThreshold = 50, includeVendor = true },
     [HEARTHSTONE_CATEGORY_KEY] = {
         primary = "itemid", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD,
     },
@@ -380,6 +380,23 @@ local function GearSetBagSlot(location)
         if bags then return bag, slot end
     end
     return nil
+end
+
+-- Vendor's public API answers 0 = keep, 1 = sell, 2 = destroy
+-- Anything but 0 is read as junk 
+-- It takes a real bag/slot, so only a real scan can check it
+local function VendorAPI()
+    local api = _G.Vendor
+    return type(api) == "table" and type(api.EvaluateItem) == "function" and api or nil
+end
+ns.VendorAPI = VendorAPI
+
+local function VendorJunk(bag, slot)
+    local api = VendorAPI()
+    if not api then return false end
+    local ok, action = pcall(api.EvaluateItem, bag, slot)
+    action = ok and tonumber(action)
+    return action ~= nil and action ~= 0
 end
 
 local function RebuildGearSetSlots()
@@ -575,9 +592,10 @@ local function FitsBag(it, bag, family)
     return false
 end
 
-local function StackSignature(itemID, ilvl, quality, bound, name)
+local function StackSignature(itemID, ilvl, quality, bound, gearSet, vendorJunk, name)
     local sig = itemID .. ":" .. ilvl .. ":" .. quality
     if gearSet then sig = sig .. ":g" end
+    if vendorJunk then sig = sig .. ":v" end
     if not bound then return sig end
     local meta = ItemMeta(itemID, name)
     if meta.classID == ARMOR_CLASS or meta.classID == WEAPON_CLASS then return sig .. ":b" end
@@ -694,7 +712,7 @@ local function FieldValue(fieldKey, it, meta)
     return field.get(it, meta), field.ascending
 end
 
-local function EffectiveRank(itemID, classID, quality, bound, gearSet, subclassID, ilvl, equipLoc, S)
+local function EffectiveRank(itemID, classID, quality, bound, gearSet, vendorJunk, subclassID, ilvl, equipLoc, S)
     DebugDetail("ilvl: item %d, class %s:%s, quality %d, bound %s, ilvl %d - junkEnabled %s, includeLowLevel %s, threshold %s",
         itemID, tostring(classID), tostring(subclassID), quality or -1, tostring(bound), ilvl or -1,
         tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkSettings.includeLowLevel),
@@ -708,6 +726,7 @@ local function EffectiveRank(itemID, classID, quality, bound, gearSet, subclassI
 
     if S.hearthstoneEnabled and HEARTHSTONE_ITEM_IDS[itemID] then return S.hearthstoneRank, S.hearthstoneSettings end
     if S.gearSetEnabled and gearSet then return S.gearSetRank, S.gearSetSettings end
+    if S.junkEnabled and S.junkSettings.includeVendor and vendorJunk then return S.junkRank, S.junkSettings end
     if S.junkEnabled and S.junkSettings.includeUnusableSoulbound and IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc) then
         return S.junkRank, S.junkSettings
     end
@@ -723,7 +742,7 @@ end
 
 local function SortKey(it, S)
     local meta = ItemMeta(it.itemID, it.name)
-    local rank, settings, customPos = EffectiveRank(it.itemID, meta.classID, it.quality, it.bound, it.gearSet, meta.subclassID, it.ilvl, meta.equipLoc, S)
+    local rank, settings, customPos = EffectiveRank(it.itemID, meta.classID, it.quality, it.bound, it.gearSet, it.vendorJunk, meta.subclassID, it.ilvl, meta.equipLoc, S)
     if customPos then
         return { it = it, rank = rank, v1 = customPos, a1 = not settings.reverse }
     end
@@ -1166,7 +1185,7 @@ local function Scan(positions)
                 items[#items + 1] = {
                     index = i, bag = p.bag, slot = p.slot,
                     itemID = snap.itemID, name = snap.name, count = snap.count, quality = snap.quality,
-                    ilvl = snap.ilvl, bound = snap.bound, gearSet = snap.gearSet,
+                    ilvl = snap.ilvl, bound = snap.bound, gearSet = snap.gearSet, vendorJunk = snap.vendorJunk,
                     maxStack = snap.maxStack, sig = snap.sig,
                 }
             end
@@ -1182,6 +1201,7 @@ local function Scan(positions)
                 local quality = tonumber(info.quality) or 1
                 local bound = info.isBound and true or false
                 local gearSet = gearSetSlots[p.bag * 1000 + p.slot] or false
+                local vendorJunk = VendorJunk(p.bag, p.slot)
                 items[#items + 1] = {
                     index    = i,
                     bag      = p.bag,
@@ -1193,8 +1213,9 @@ local function Scan(positions)
                     ilvl     = ilvl,
                     bound    = bound,
                     gearSet  = gearSet,
+                    vendorJunk = vendorJunk,
                     maxStack = MaxStack(p.bag, p.slot, itemID),
-                    sig      = StackSignature(itemID, ilvl, quality, bound, gearSet, info.itemName),
+                    sig      = StackSignature(itemID, ilvl, quality, bound, gearSet, vendorJunk, info.itemName),
                 }
             end
         end
