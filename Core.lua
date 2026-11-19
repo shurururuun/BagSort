@@ -38,9 +38,15 @@ end
 local CATEGORY_CLASS = {}          -- member name -> class id
 local DEFAULT_CATEGORY_ORDER = {}  -- those names, class id ascending, "Default" last
 do
+    -- filter WoW Forever obsolete classes
+    local function Obsolete(key, classID)
+        if key:find("Obsolete") then return true end
+        local name = Item and Item.GetItemClassInfo and Item.GetItemClassInfo(classID)
+        return type(name) == "string" and name:find("OBSOLETE", 1, true) ~= nil
+    end
     local classes = (Enum and Enum.ItemClass) or {}
     for key, classID in pairs(classes) do
-        if type(classID) == "number" and not key:find("Obsolete") then
+        if type(classID) == "number" and not Obsolete(key, classID) then
             CATEGORY_CLASS[key] = classID
             DEFAULT_CATEGORY_ORDER[#DEFAULT_CATEGORY_ORDER + 1] = key
         end
