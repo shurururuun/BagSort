@@ -400,6 +400,11 @@ function ns.SetupOptions()
     options.args.profiles = AceDBOptions:GetOptionsTable(BagSort.db)
     options.args.profiles.order = 90
 
+    -- AceDBOptions hands every addon the same args table, copy it before changing it
+    local args = {}
+    for k, v in pairs(options.args.profiles.args) do args[k] = v end
+    options.args.profiles.args = args
+
     options.args.profiles.args.resetCategories = {
         order = 5,
         type = "execute",
