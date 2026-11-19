@@ -194,7 +194,7 @@ local SORT_FIELDS = {
     quality   = { ascending = false, get = function(it, m) return it.quality or 0 end },
     name      = { ascending = true,  get = function(it, m) return (m.name or ""):lower() end },
     ilvl      = { ascending = false, get = function(it, m) return it.ilvl or 0 end },
-    value     = { ascending = false, get = function(it, m) return ItemSellPrice(it.itemID) end },
+    value     = { ascending = false, get = function(it, m) return ItemSellPrice(it.itemID) * (it.count or 1) end },
     itemid    = { ascending = true,  get = function(it, m) return it.itemID or 0 end },
     expansion = { ascending = false, get = function(it, m) return ItemExpansion(it.itemID) end },
 }
