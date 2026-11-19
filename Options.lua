@@ -9,7 +9,6 @@ local AceConfigDialog   = LibStub("AceConfigDialog-3.0")
 local AceConfigRegistry = LibStub("AceConfigRegistry-3.0")
 local AceDBOptions      = LibStub("AceDBOptions-3.0")
 
--- 
 -- the last part of the option path is the key in the profile
 local function Get(info)
     return BagSort.db.profile[info[#info]]
@@ -18,6 +17,18 @@ end
 local function Set(info, value)
     BagSort.db.profile[info[#info]] = value
 end
+
+-- integration checklist list for the about tab
+local INTEGRATIONS = {
+    { name = "Baganator Sort",
+      probe = function() return Baganator and Baganator.API and Baganator.API.RegisterContainerSort end },
+    { name = "Vendor Junk List",
+      probe = function() return ns.VendorAPI() end },
+    { name = "ElvUI Bag/Bank Detection",
+      probe = function() return _G.ElvUI end },
+    { name = "LibDataBroker Data Feed",
+      probe = function() return LibStub("LibDataBroker-1.1", true) end },
+}
 
 local options = {
     type = "group",
@@ -66,7 +77,7 @@ local options = {
                             type = "toggle",
                             order = 1,
                             width = "full",
-                            name = "Put smallest stack first",
+                            name = "Smallest Stack First",
                             desc = "When an item has more than one stack, which stack leads the group. "
                                 .. "Off leads with the largest stack (default).",
                             get = function() return BagSort.db.profile.stackOrder == "smallest" end,
@@ -78,17 +89,8 @@ local options = {
                             type = "toggle",
                             order = 2,
                             width = "full",
-                            name = "Verbose messages",
+                            name = "Verbose Messages",
                             desc = "Writes BagSort messages to the chat.",
-                            get = Get,
-                            set = Set,
-                        },
-                        debugMessages = {
-                            type = "toggle",
-                            order = 3,
-                            width = "full",
-                            name = "Debug messages",
-                            desc = "Writes the debugging messages to the chat.",
                             get = Get,
                             set = Set,
                         },
@@ -103,11 +105,11 @@ local options = {
                         bagOrder = {
                             type = "select",
                             order = 1,
-                            name = "Bag order",
+                            name = "Bag Order",
                             desc = "Which bag is filled first.",
                             values = {
-                                ltr = "Backpack first",
-                                rtl = "Last bag first (default)",
+                                ltr = "Backpack First",
+                                rtl = "Last Bag First (default)",
                             },
                             sorting = { "ltr", "rtl" },
                             get = Get,
@@ -116,11 +118,11 @@ local options = {
                         slotOrder = {
                             type = "select",
                             order = 2,
-                            name = "Bag slot order",
+                            name = "Bag Slot Order",
                             desc = "Which slot inside a bag is filled first.",
                             values = {
-                                ltr = "First slot downwards",
-                                rtl = "Last slot upwards (default)",
+                                ltr = "First Slot Downwards",
+                                rtl = "Last slot Upwards (default)",
                             },
                             sorting = { "ltr", "rtl" },
                             get = Get,
@@ -130,7 +132,7 @@ local options = {
                             type = "toggle",
                             order = 3,
                             width = "full",
-                            name = "Fill reagent and profession bags",
+                            name = "Fill Reagent and Profession Bags",
                             desc = "Moves items out of the normal bags into a bag that takes them if there is space. "
                                 .. "Crafting reagents go into the reagent bag, herbs into a herb bag, and so on. "
                                 .. "Off sorts every bag where it stands.",
@@ -141,7 +143,7 @@ local options = {
                             type = "toggle",
                             order = 4,
                             width = "full",
-                            name = "Sort the reagent bag",
+                            name = "Sort Reagent Bag",
                             desc = "Sorts the reagent bag as well.",
                             get = Get,
                             set = Set,
@@ -150,7 +152,7 @@ local options = {
                             type = "toggle",
                             order = 5,
                             width = "full",
-                            name = "Honor \"Ignore this bag > Cleanup\" setting",
+                            name = "Honor \"Ignore this bag > Cleanup\" Setting",
                             desc = "A bag that has set \"Ignore this bag > Cleanup\" set (from its own right-click "
                                 .. "menu) is left out of the sort entirely.",
                             get = Get,
@@ -167,12 +169,12 @@ local options = {
                         bankTabOrder = {
                             type = "select",
                             order = 1,
-                            name = "Bank tab order",
+                            name = "Bank Tab Order",
                             desc = "Which bank tab is filled first. Only tabs you have bought count, so \"Last tab\" "
                                 .. "starts at the last existing tab.",
                             values = {
-                                ltr = "First tab (default)",
-                                rtl = "Last tab",
+                                ltr = "First Tab (default)",
+                                rtl = "Last Tab",
                             },
                             sorting = { "ltr", "rtl" },
                             get = Get,
@@ -181,11 +183,11 @@ local options = {
                         bankSlotOrder = {
                             type = "select",
                             order = 2,
-                            name = "Bank slot order",
+                            name = "Bank Slot Order",
                             desc = "Which slot inside a bank tab is filled first.",
                             values = {
-                                ltr = "First slot downwards (default)",
-                                rtl = "Last slot upwards",
+                                ltr = "First Slot Downwards (default)",
+                                rtl = "Last Slot Upwards",
                             },
                             sorting = { "ltr", "rtl" },
                             get = Get,
@@ -195,7 +197,7 @@ local options = {
                             type = "toggle",
                             order = 3,
                             width = "full",
-                            name = "Try to honor bank tab settings",
+                            name = "Try to Honor Bank Tab Settings",
                             desc = "Try to keep each tab's deposit filter settings as much as possible. Two tabs with "
                                 .. "the same settings are sorted as one big group. Tabs set to \"Ignore this tab\" "
                                 .. "are left alone. Items matching these filters are moved into these tabs, if there "
@@ -207,8 +209,8 @@ local options = {
                             type = "toggle",
                             order = 4,
                             width = "full",
-                            name = "Leave empty slot between categories",
-                            desc = "Leaves empty slots between categories in the bank when there is enough space.",
+                            name = "Leave Empty Slot Between Categories",
+                            desc = "Leaves an empty slot between each category in the bank if there is enough space.",
                             get = Get,
                             set = Set,
                         },
@@ -301,16 +303,27 @@ local options = {
                             type = "toggle",
                             order = 1,
                             width = "full",
-                            name = "Include Vendor addon's sell/destroy list",
-                            desc = "Items the Vendor addon will sell or destroy is treated as Junk.",
+                            name = "Include Vendor addon's Sell/Destroy List",
+                            desc = function()
+                                if not ns.VendorAPI() then
+                                    return "Vendor addon not found. Install and enable Vendor to use this option."
+                                end
+                                return "Items the Vendor addon will sell or destroy are treated as Junk."
+                            end,
                             disabled = function() return not ns.VendorAPI() end,
                         },
                         includeUnusableSoulbound = {
                             type = "toggle",
                             order = 2,
                             width = "full",
-                            name = "Unusable soulbound items",
-                            desc = "Soulbound armor of a type your character cannot wear is treated as Junk.",
+                            name = "Unusable Soulbound Items",
+                            desc = "Soulbound armor and weapons that your character cannot use are treated as Junk:\n"
+                                .. "- armor that is not the main armor type of your class (on WoW Forever: only a "
+                                .. "type higher than it, for example mail on a Mage)\n"
+                                .. "- armor and weapons for other classes only\n"
+                                .. "- on WoW Forever, weapons of a type that your class can never learn\n"
+                                .. "Warbound items are never treated as Junk, because another character on your "
+                                .. "account can use them.",
                         },
                     },
                 },
@@ -354,28 +367,27 @@ local options = {
                         local version = Field("Version") or "unknown"
                         local author  = Field("Author") or "unknown"
                         local notes   = Field("Notes") or ""
-                        return ("|cffffd200%s|r  (version %s)\nby %s\n\n%s\n"):format(title, version, author, notes)
+                        return ("|cffffd200%s|r  (version %s) by %s\n\n%s\n"):format(title, version, author, notes)
                     end,
                 },
                 commands = {
                     type = "description",
                     order = 10,
                     fontSize = "medium",
-                    name = "/sort with no arguments sorts the bags, or the bank if one is open.\n",
+                    name = "/sort with no arguments sorts the bags, or the bank if one is open.\n\n",
                 },
                 integrations = {
                     type = "description",
                     order = 20,
                     fontSize = "medium",
                     name = function()
-                        local baganator = (Baganator and Baganator.API and Baganator.API.RegisterContainerSort)
-                            and "|cff20ff20detected|r" or "|cff808080not detected|r"
-                        local ldb = (LibStub and LibStub("LibDataBroker-1.1", true))
-                            and "|cff20ff20available|r" or "|cff808080not available|r"
-                        local vendor = ns.VendorAPI()
-                            and "|cff20ff20detected|r" or "|cff808080not detected|r"
-                        return ("Baganator sort integration: %s\nVendor sell list (Junk): %s\nLibDataBroker data feed: %s\n")
-                            :format(baganator, vendor, ldb)
+                        local lines = {"Integrations:"}
+                        for _, it in ipairs(INTEGRATIONS) do
+                            lines[#lines + 1] = ("%s  %s"):format(it.probe()
+                                and "|TInterface\\RaidFrame\\ReadyCheck-Ready:16|t"
+                                or "|TInterface\\RaidFrame\\ReadyCheck-NotReady:16|t", it.name)
+                        end
+                        return table.concat(lines, "\n") .. "\n"
                     end,
                 },
             },
@@ -383,7 +395,7 @@ local options = {
     },
 }
 
--- This runs from BagSort:OnInitialize, once the database exists.
+-- this runs from BagSort:OnInitialize, once the database exists
 function ns.SetupOptions()
     options.args.profiles = AceDBOptions:GetOptionsTable(BagSort.db)
     options.args.profiles.order = 90

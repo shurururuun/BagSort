@@ -27,6 +27,10 @@ end
 
 local function LastNormalBag() return NUM_BAG_SLOTS or 4 end
 
+local function IsVanillaClient()
+    return (select(4, GetBuildInfo()) or 0) < 20000
+end
+
 -- =========================================================================
 -- Categories (the item classes, in the order they are laid out)
 -- =========================================================================
@@ -67,7 +71,7 @@ local HEARTHSTONE_ITEM_IDS = {
 }
 table.insert(DEFAULT_CATEGORY_ORDER, 1, HEARTHSTONE_CATEGORY_KEY)
 
--- special category: Items in gear sets
+-- special category: items in gear sets
 local GEARSET_CATEGORY_KEY = "GearSet"
 ns.GEARSET_CATEGORY_KEY = GEARSET_CATEGORY_KEY
 table.insert(DEFAULT_CATEGORY_ORDER, 2, GEARSET_CATEGORY_KEY)
@@ -80,48 +84,84 @@ table.insert(DEFAULT_CATEGORY_ORDER, 3, SOULBOUND_CATEGORY_KEY)
 local ARMOR_CLASS  = Enum and Enum.ItemClass and Enum.ItemClass.Armor
 local WEAPON_CLASS = Enum and Enum.ItemClass and Enum.ItemClass.Weapon
 
--- main armor for teach character class
+-- main armor for each character class
 local ARMOR_TYPE_BY_CLASS = {
-	WARRIOR     = 4, -- plate
-	PALADIN     = 4, -- plate
-	HUNTER      = 3, -- mail
-	ROGUE       = 2, -- leather
-	PRIEST      = 1, -- cloth
-	DEATHKNIGHT = 4, -- plate
-	SHAMAN      = 3, -- mail
-	MAGE        = 1, -- cloth
-	WARLOCK     = 1, -- cloth
-	MONK        = 2, -- leather
-	DRUID       = 2, -- leather
-	DEMONHUNTER = 2, -- leather
-	EVOKER      = 3, -- mail
+    WARRIOR     = 4, -- plate
+    PALADIN     = 4, -- plate
+    HUNTER      = 3, -- mail
+    ROGUE       = 2, -- leather
+    PRIEST      = 1, -- cloth
+    DEATHKNIGHT = 4, -- plate
+    SHAMAN      = 3, -- mail
+    MAGE        = 1, -- cloth
+    WARLOCK     = 1, -- cloth
+    MONK        = 2, -- leather
+    DRUID       = 2, -- leather
+    DEMONHUNTER = 2, -- leather
+    EVOKER      = 3, -- mail
 }
 
 local function CharacterMainArmorType()
-	local _, class = UnitClass("player")
-	return class and ARMOR_TYPE_BY_CLASS[class]
+    local _, class = UnitClass("player")
+    return class and ARMOR_TYPE_BY_CLASS[class]
 end
+
+-- WoW Forever vanilla rules: learnable weapon types for each class
+-- 0/1: axe 1H/2H
+-- 2: bow
+-- 3: gun
+-- 4/5: mace 1H/2H
+-- 6: polearm
+-- 7/8: sword 1H/2H
+-- 10: staff
+-- 13: fist
+-- 15: dagger
+-- 16: thrown
+-- 18: crossbow
+-- 19: wand
+local VANILLA_WEAPONS_BY_CLASS = {
+    WARRIOR = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18 },
+    PALADIN = { 0, 1, 4, 5, 6, 7, 8 },
+    HUNTER  = { 0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 16, 18 },
+    ROGUE   = { 0, 2, 3, 4, 7, 13, 15, 16, 18 },
+    PRIEST  = { 4, 10, 15, 19 },
+    SHAMAN  = { 0, 1, 4, 5, 10, 13, 15 },
+    MAGE    = { 7, 10, 15, 19 },
+    WARLOCK = { 7, 10, 15, 19 },
+    DRUID   = { 4, 5, 10, 13, 15 },
+}
+
+-- only these types are checked, so a fishing pole or a miscellaneous held item is never unusable
+local VANILLA_CHECKED_WEAPONS = {}
+for class, list in pairs(VANILLA_WEAPONS_BY_CLASS) do
+    local set = {}
+    for _, subclassID in ipairs(list) do
+        set[subclassID] = true
+        VANILLA_CHECKED_WEAPONS[subclassID] = true
+    end
+    VANILLA_WEAPONS_BY_CLASS[class] = set
+end
+
+local function IsUnlearnableVanillaWeapon(subclassID)
+    if not (IsVanillaClient() and VANILLA_CHECKED_WEAPONS[subclassID]) then return false end
+    local _, class = UnitClass("player")
+    local learnable = class and VANILLA_WEAPONS_BY_CLASS[class]
+    return learnable ~= nil and not learnable[subclassID]
+end
+
 
 -- equip locations that have armor type restrictions
 local ARMOR_TYPE_RESTRICTED_EQUIP_LOCS = {
-	INVTYPE_HEAD     = true,
-	INVTYPE_SHOULDER = true,
-	INVTYPE_CHEST    = true,
-	INVTYPE_ROBE     = true,
-	INVTYPE_WAIST    = true,
-	INVTYPE_LEGS     = true,
-	INVTYPE_FEET     = true,
-	INVTYPE_WRIST    = true,
-	INVTYPE_HAND     = true,
+    INVTYPE_HEAD     = true,
+    INVTYPE_SHOULDER = true,
+    INVTYPE_CHEST    = true,
+    INVTYPE_ROBE     = true,
+    INVTYPE_WAIST    = true,
+    INVTYPE_LEGS     = true,
+    INVTYPE_FEET     = true,
+    INVTYPE_WRIST    = true,
+    INVTYPE_HAND     = true,
 }
-
-local function IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc)
-	if not bound or classID ~= ARMOR_CLASS then return false end
-	if not ARMOR_TYPE_RESTRICTED_EQUIP_LOCS[equipLoc] then return false end
-	if not (subclassID and subclassID >= 1 and subclassID <= 4) then return false end
-	local mainArmorType = CharacterMainArmorType()
-	return mainArmorType and subclassID ~= mainArmorType
-end
 
 -- provisional answers
 local provisional = {}
@@ -137,7 +177,69 @@ local function ForgetProvisional()
 end
 ns.ForgetProvisional = ForgetProvisional
 
--- per-category sort settings
+-- items restricted to classes the player is not, from the tooltip's "Classes: ..." line
+-- the client colors that line red when the player's class is not listed, which works in every locale
+local USAGE_REQUIREMENT_LINE = Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.UsageRequirement
+local RACE_CLASS_REQUIREMENT = Enum and Enum.TooltipDataUsageRequirementType and Enum.TooltipDataUsageRequirementType.RaceClass
+local classLockCache = {}
+
+-- warbound items, from the tooltip's binding line: another character on the account can still use them
+local ITEM_BINDING_LINE = Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.ItemBinding
+local ACCOUNT_BINDINGS = {}
+do
+    local binding = Enum and Enum.TooltipDataItemBinding or {}
+    for _, name in ipairs({ "Account", "BnetAccount", "BindToAccount", "BindToBnetAccount",
+                            "AccountUntilEquipped", "BindToAccountUntilEquipped" }) do
+        if binding[name] then ACCOUNT_BINDINGS[binding[name]] = true end
+    end
+end
+local warboundCache = {}
+
+local function IsRedLine(color)
+    local r, g, b = tonumber(color and color.r), tonumber(color and color.g), tonumber(color and color.b)
+    return r ~= nil and g ~= nil and b ~= nil and r > 0.9 and g < 0.5 and b < 0.5
+end
+
+-- takes a real bag/slot, so only a real scan fills the caches
+-- the answer is the same for every copy of the item
+-- "warbound until equipped" is per copy, not per item id
+-- soulbound copy scanned first hides it for a warbound copy of the same item
+local function ScanClassLock(itemID, bag, slot)
+    if classLockCache[itemID] ~= nil then return end
+    local tooltip = C_TooltipInfo
+    if not (tooltip and tooltip.GetBagItem) then return end
+    local data = tooltip.GetBagItem(bag, slot)
+    local lines = data and data.lines
+    -- a tooltip of one line is "Retrieving item information"
+    if not (lines and #lines > 1) then
+        Provisional(classLockCache, itemID, false)
+        return
+    end
+    local locked, warbound = false, false
+    for _, line in ipairs(lines) do
+        if line.type == USAGE_REQUIREMENT_LINE and line.requirementType == RACE_CLASS_REQUIREMENT and IsRedLine(line.leftColor) then
+            locked = true
+        end
+        if line.type == ITEM_BINDING_LINE and ACCOUNT_BINDINGS[line.bonding] then
+            warbound = true
+        end
+    end
+    classLockCache[itemID] = locked
+    warboundCache[itemID] = warbound
+end
+
+local function IsUnusableSoulbound(itemID, classID, subclassID, bound, equipLoc)
+    if warboundCache[itemID] then return false end
+    if bound and (classID == ARMOR_CLASS or classID == WEAPON_CLASS) and classLockCache[itemID] then return true end
+    if bound and classID == WEAPON_CLASS then return IsUnlearnableVanillaWeapon(subclassID) end
+    if not bound or classID ~= ARMOR_CLASS then return false end
+    if not ARMOR_TYPE_RESTRICTED_EQUIP_LOCS[equipLoc] then return false end
+    if not (subclassID and subclassID >= 1 and subclassID <= 4) then return false end
+    local mainArmorType = CharacterMainArmorType()
+    if not mainArmorType then return false end
+    if IsVanillaClient() then return subclassID > mainArmorType end
+    return subclassID ~= mainArmorType
+end
 
 local expansionCache = {}
 local function ItemExpansion(itemID)
@@ -145,7 +247,8 @@ local function ItemExpansion(itemID)
     if known ~= nil then return known end
     if not Item.GetItemInfo then return -1 end
     local expansionID = select(15, Item.GetItemInfo(itemID))
-    -- Not cached by the client yet. Held at -1 for the rest of this sort, asked again on the next one.
+    -- not cached by the client yet
+    -- held at -1 for the rest of this sort, asked again on the next one
     if expansionID == nil then return Provisional(expansionCache, itemID, -1) end
     expansionCache[itemID] = tonumber(expansionID) or -1
     return expansionCache[itemID]
@@ -234,7 +337,6 @@ local defaults = {
         -- behaviour
         stackOrder           = "largest", -- largest = biggest stack of an item first, smallest = reverse
         verbose              = false,     -- print messages in chat
-        debugMessages        = false,     -- print debugging messages
 
         -- bags
         bagOrder             = "rtl",     -- rtl = last bag first, ltr = backpack first
@@ -277,8 +379,11 @@ local function Debug(msg, ...)
     if DB().verbose then BagSort:Printf(msg, ...) end
 end
 
+-- for this session only, never saved in the profile: /sort debug on|off
+local debugMessages = false
+
 local function DebugDetail(msg, ...)
-    if DB().debugMessages then BagSort:Printf(msg, ...) end
+    if debugMessages then BagSort:Printf(msg, ...) end
 end
 
 
@@ -324,7 +429,7 @@ local function NormalizeOrder(dbKey)
     return order
 end
 
--- category setttings
+-- category settings
 local function CategorySettingsFor(dbKey, key)
     local saved = DB()[dbKey]
     local override = type(saved) == "table" and saved[key] or nil
@@ -386,8 +491,8 @@ local function GearSetBagSlot(location)
 end
 
 -- Vendor's public API answers 0 = keep, 1 = sell, 2 = destroy
--- Anything but 0 is read as junk 
--- It takes a real bag/slot, so only a real scan can check it
+-- anything but 0 is read as junk
+-- it takes a real bag/slot, so only a real scan can check it
 local function VendorAPI()
     local api = _G.Vendor
     return type(api) == "table" and type(api.EvaluateItem) == "function" and api or nil
@@ -588,7 +693,7 @@ local function FitsBag(it, bag, family)
     if bag ~= REAGENT_BAG and family == 0 then return false end
     if refused[RefusedKey(it.itemID, bag, family)] then return false end
     local meta = ItemMeta(it.itemID, it.name)
-    -- A bag carries a family of its own but never goes inside another bag.
+    -- a bag carries a family of its own but never goes inside another bag.
     if meta.classID == CONTAINER_CLASS or meta.classID == QUIVER_CLASS then return false end
     if band and family ~= 0 and meta.family and meta.family ~= 0
     and band(meta.family, family) ~= 0 then
@@ -668,7 +773,9 @@ local EQUIP_LOC_SLOTS = {
 local function EquippedItemLevelForEquipLoc(equipLoc)
     local slots = EQUIP_LOC_SLOTS[equipLoc]
     if not slots or not GetInventoryItemLink then
-        DebugDetail("ilvl: equipLoc %s has no equip slot(s) - no comparison", tostring(equipLoc))
+        if debugMessages then
+            DebugDetail("ilvl: equipLoc %s has no equip slot(s) - no comparison", tostring(equipLoc))
+        end
         return nil
     end
     local lowest
@@ -684,7 +791,9 @@ local function EquippedItemLevelForEquipLoc(equipLoc)
             DebugDetail("ilvl: slot %d is empty", slotID)
         end
     end
-    DebugDetail("ilvl: equipLoc %s - lowest worn ilvl %s", tostring(equipLoc), tostring(lowest))
+    if debugMessages then
+        DebugDetail("ilvl: equipLoc %s - lowest worn ilvl %s", tostring(equipLoc), tostring(lowest))
+    end
     return lowest
 end
 
@@ -719,10 +828,13 @@ local function FieldValue(fieldKey, it, meta)
 end
 
 local function EffectiveRank(itemID, classID, quality, bound, gearSet, vendorJunk, subclassID, ilvl, equipLoc, S)
-    DebugDetail("ilvl: item %d, class %s:%s, quality %d, bound %s, ilvl %d - junkEnabled %s, includeLowLevel %s, threshold %s",
-        itemID, tostring(classID), tostring(subclassID), quality or -1, tostring(bound), ilvl or -1,
-        tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkLowLevel),
-        tostring(S.junkEnabled and S.junkLowLevelThreshold))
+    -- guarded, as this runs for every stack on every plan pass and the tostring calls run before DebugDetail looks
+    if debugMessages then
+        DebugDetail("ilvl: item %d, class %s:%s, quality %d, bound %s, ilvl %d - junkEnabled %s, includeLowLevel %s, threshold %s",
+            itemID, tostring(classID), tostring(subclassID), quality or -1, tostring(bound), ilvl or -1,
+            tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkLowLevel),
+            tostring(S.junkEnabled and S.junkLowLevelThreshold))
+    end
 
     -- player's own custom categories win over every other category
     for _, custom in ipairs(S.customCategories) do
@@ -733,7 +845,7 @@ local function EffectiveRank(itemID, classID, quality, bound, gearSet, vendorJun
     if S.hearthstoneEnabled and HEARTHSTONE_ITEM_IDS[itemID] then return S.hearthstoneRank, S.hearthstoneSettings end
     if S.gearSetEnabled and gearSet then return S.gearSetRank, S.gearSetSettings end
     if S.junkEnabled and S.junkVendor and vendorJunk then return S.junkRank, S.junkSettings end
-    if S.junkEnabled and S.junkUnusableSoulbound and IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc) then
+    if S.junkEnabled and S.junkUnusableSoulbound and IsUnusableSoulbound(itemID, classID, subclassID, bound, equipLoc) then
         return S.junkRank, S.junkSettings
     end
     if S.junkEnabled and S.junkLowLevel and IsLowLevelSoulbound(itemID, ilvl, bound, gearSet, S.junkLowLevelThreshold, equipLoc) then
@@ -824,7 +936,7 @@ local function BuildGroups()
     for _, g in ipairs(special) do groups[#groups + 1] = g end
     if db.reagentBag and Container.GetContainerNumSlots(REAGENT_BAG) > 0
     and not (db.honorBagCleanupFlag and BagCleanupIgnored(REAGENT_BAG)) then
-        -- The reagent bag reports no family, it is restricted all the same.
+        -- reagent bag reports no family, it is restricted all the same
         groups[#groups + 1] = { REAGENT_BAG, family = BagFamily(REAGENT_BAG), restricted = true }
     end
     if #generic > 0 then groups[#groups + 1] = generic end
@@ -1208,6 +1320,7 @@ local function Scan(positions)
                 local bound = info.isBound and true or false
                 local gearSet = gearSetSlots[p.bag * 1000 + p.slot] or false
                 local vendorJunk = VendorJunk(p.bag, p.slot)
+                if bound then ScanClassLock(itemID, p.bag, p.slot) end
                 items[#items + 1] = {
                     index    = i,
                     bag      = p.bag,
@@ -1250,8 +1363,10 @@ ns.DetectBankType, ns.GuildBankOpen = DetectBankType, GuildBankOpen
 -- the junk options used to live in the Junk category's own settings, once for the bags and once for the bank:
 -- the bag copy is moved up to the profile, the bank copy is dropped
 local JUNK_OPTIONS = { "includeVendor", "includeUnusableSoulbound", "includeLowLevel", "lowLevelThreshold" }
-local function MigrateJunkOptions()
+local function MigrateProfile()
     local db = DB()
+    -- once a profile setting, now for one session only
+    db.debugMessages = nil
     for _, dbKey in ipairs({ "bankCategorySettings", "categorySettings" }) do
         local junk = type(db[dbKey]) == "table" and db[dbKey][JUNK_CATEGORY_KEY]
         if type(junk) == "table" then
@@ -1265,7 +1380,7 @@ end
 
 function BagSort:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("BagSortDB", defaults, true)
-    MigrateJunkOptions()
+    MigrateProfile()
 
     self.db.RegisterCallback(self, "OnProfileChanged", "OnProfileUpdate")
     self.db.RegisterCallback(self, "OnProfileCopied", "OnProfileUpdate")
@@ -1286,7 +1401,7 @@ end
 -- changing settings aborts a running sort
 function BagSort:OnProfileUpdate()
     if BagSort:IsSorting() then ns.StopSort("stopped, the settings changed.") end
-    MigrateJunkOptions()
+    MigrateProfile()
     RebuildClassRank()
     ns.RefreshOptions()
 end
@@ -1360,7 +1475,6 @@ function ns.SetBankCategorySettings(key, patch)
     local db = DB()
     db.bankCategorySettings = db.bankCategorySettings or {}
     local saved = db.bankCategorySettings[key] or {}
-    -- See the matching comment in ns.SetCategorySettings above.
     for field in pairs(patch) do
         if patch[field] ~= nil then saved[field] = patch[field] end
     end
@@ -1560,6 +1674,11 @@ function BagSort:Diagnose()
     Report("C_Item.GetItemClassInfo (category names)", Item.GetItemClassInfo)
     Report("bit.band", band)
     Report("C_Item.GetDetailedItemLevelInfo", Item.GetDetailedItemLevelInfo)
+    Report("C_TooltipInfo.GetBagItem (class-only items)", C_TooltipInfo and C_TooltipInfo.GetBagItem)
+    Report("Enum.TooltipDataLineType.UsageRequirement", USAGE_REQUIREMENT_LINE)
+    Report("Enum.TooltipDataUsageRequirementType.RaceClass", RACE_CLASS_REQUIREMENT)
+    Report("Enum.TooltipDataLineType.ItemBinding (Warbound items)", ITEM_BINDING_LINE)
+    Report("Enum.TooltipDataItemBinding", next(ACCOUNT_BINDINGS))
     Report("C_EquipmentSet.GetEquipmentSetIDs", C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs)
     Report("C_EquipmentSet.GetItemIDs", C_EquipmentSet and C_EquipmentSet.GetItemIDs)
     Report("ItemLocation", ItemLocation)
@@ -1814,6 +1933,8 @@ function BagSort:ShowHelp()
     print("  /sort cleanupflag on|off   -- honor \"Ignore this bag\" on cleanup, now: "
         .. (db.honorBagCleanupFlag and "on" or "off"))
     print("  /sort debug                -- print what the addon sees in your bags")
+    print("  /sort debug on|off         -- debugging messages for this session, now: "
+        .. (debugMessages and "on" or "off"))
     print("  /sort config               -- open the options panel")
     print("  /sort profile <name>       -- switch profile, now: " .. self.db:GetCurrentProfile())
     print("  /sort reset                -- back to the default settings")
@@ -1954,7 +2075,15 @@ function BagSort:SlashCommand(msg)
         end
 
     elseif cmd == "debug" then
-        self:Diagnose()
+        local value = OnOff(rest:lower())
+        if rest == "" then
+            self:Diagnose()
+        elseif value == nil then
+            self:Printf("usage: /sort debug [on|off] (messages now: %s)", debugMessages and "on" or "off")
+        else
+            debugMessages = value
+            self:Printf("debug messages: %s, until you log out or reload.", value and "on" or "off")
+        end
 
     elseif cmd == "verbose" then
         local value = OnOff(rest:lower())
