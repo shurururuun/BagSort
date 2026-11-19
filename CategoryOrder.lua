@@ -330,7 +330,7 @@ end
 
 -- detail text for special categories
 local SENTINEL_DETAIL = {
-    [ns.JUNK_CATEGORY_KEY]        = "Claims poor quality items ahead of their own category.",
+    [ns.JUNK_CATEGORY_KEY]        = "Claims poor quality items ahead of their own category. The Junk tab adds more items to it.",
     [ns.EMPTY_CATEGORY_KEY]       = "Gathers the free slots wherever it sits - the categories above it fill "
         .. "the bags from the front, the ones below it from the back.",
     [ns.HEARTHSTONE_CATEGORY_KEY] = "Claims the hearthstones and the flight master's whistle by item id.",
@@ -691,10 +691,6 @@ function RefreshDetail(self)
         self.detail.title:Hide()
         self.detail.enabledCheck.frame:Hide()
         self.detail.reverseCheck.frame:Hide()
-        self.detail.vendorCheck.frame:Hide()
-        self.detail.unusableSoulboundCheck.frame:Hide()
-        self.detail.lowLevelCheck.frame:Hide()
-        self.detail.lowLevelThresholdInput.frame:Hide()
         self.detail.primaryDropdown.frame:Hide()
         self.detail.secondaryDropdown.frame:Hide()
         self.detail.tertiaryDropdown.frame:Hide()
@@ -729,27 +725,6 @@ function RefreshDetail(self)
     reverseCheck.frame:SetShown(not isEmpty)
     reverseCheck:SetValue(settings.reverse)
     reverseCheck:SetDisabled(self.disabled)
-
-    local isJunk = (key == ns.JUNK_CATEGORY_KEY)
-    local vendorCheck = self.detail.vendorCheck
-    vendorCheck.frame:SetShown(isJunk)
-    vendorCheck:SetValue(settings.includeVendor)
-    vendorCheck:SetDisabled(self.disabled or not ns.VendorAPI())
-
-    local unusableSoulboundCheck = self.detail.unusableSoulboundCheck
-    unusableSoulboundCheck.frame:SetShown(isJunk)
-    unusableSoulboundCheck:SetValue(settings.includeUnusableSoulbound)
-    unusableSoulboundCheck:SetDisabled(self.disabled)
-
-    local lowLevelCheck = self.detail.lowLevelCheck
-    lowLevelCheck.frame:SetShown(isJunk)
-    lowLevelCheck:SetValue(settings.includeLowLevel)
-    lowLevelCheck:SetDisabled(self.disabled)
-
-    local lowLevelThresholdInput = self.detail.lowLevelThresholdInput
-    lowLevelThresholdInput.frame:SetShown(isJunk and settings.includeLowLevel)
-    lowLevelThresholdInput:SetText(tostring(settings.lowLevelThreshold or 50))
-    lowLevelThresholdInput:SetDisabled(self.disabled)
 
     local primaryDropdown = self.detail.primaryDropdown
     primaryDropdown.frame:SetShown(not isEmpty and not isCustom)
@@ -830,10 +805,6 @@ function RefreshDetail(self)
         { top = d.nameLabel, bottom = d.nameBox, shown = isCustom, dx = 2, dy = -6 },
         { top = enabledCheck.frame, shown = true, dx = -2, dy = -10 },
         { top = reverseCheck.frame, shown = not isEmpty, dx = 0, dy = 0 },
-        { top = vendorCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
-        { top = unusableSoulboundCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
-        { top = lowLevelCheck.frame, shown = isJunk, dx = 0, dy = 0, wide = true },
-        { top = lowLevelThresholdInput.frame, shown = isJunk and settings.includeLowLevel, dx = 2, dy = -10 },
         { top = primaryDropdown.frame, bottom = tertiaryDropdown.frame,
           shown = not isEmpty and not isCustom, dx = 2, dy = -10 },
         { top = description, shown = text ~= nil, dx = -2, dy = -12, wide = true },
@@ -928,54 +899,6 @@ local function BuildDetail(self, parent)
         WriteSetting(self, "reverse", value and true or false)
     end)
     detail.reverseCheck = reverseCheck
-
-    local vendorCheck = AceGUI:Create("CheckBox")
-    vendorCheck.frame:SetParent(parent)
-    vendorCheck.frame:ClearAllPoints()
-    vendorCheck:SetPoint("TOPLEFT", reverseCheck.frame, "BOTTOMLEFT", 0, 0)
-    vendorCheck:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
-    vendorCheck:SetLabel("Include the Vendor addon's sell list")
-    vendorCheck:SetCallback("OnValueChanged", function(_, _, value)
-        WriteSetting(self, "includeVendor", value and true or false)
-    end)
-    detail.vendorCheck = vendorCheck
-
-    local unusableSoulboundCheck = AceGUI:Create("CheckBox")
-    unusableSoulboundCheck.frame:SetParent(parent)
-    unusableSoulboundCheck.frame:ClearAllPoints()
-    unusableSoulboundCheck:SetPoint("TOPLEFT", vendorCheck.frame, "BOTTOMLEFT", 0, 0)
-    unusableSoulboundCheck:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
-    unusableSoulboundCheck:SetLabel("Include unusable soulbound items")
-    unusableSoulboundCheck:SetCallback("OnValueChanged", function(_, _, value)
-        WriteSetting(self, "includeUnusableSoulbound", value and true or false)
-    end)
-    detail.unusableSoulboundCheck = unusableSoulboundCheck
-
-    local lowLevelCheck = AceGUI:Create("CheckBox")
-    lowLevelCheck.frame:SetParent(parent)
-    lowLevelCheck.frame:ClearAllPoints()
-    lowLevelCheck:SetPoint("TOPLEFT", unusableSoulboundCheck.frame, "BOTTOMLEFT", 0, 0)
-    lowLevelCheck:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
-    lowLevelCheck:SetLabel("Include low level soulbound")
-    lowLevelCheck:SetCallback("OnValueChanged", function(_, _, value)
-        WriteSetting(self, "includeLowLevel", value and true or false)
-        RefreshDetail(self)
-    end)
-    detail.lowLevelCheck = lowLevelCheck
-
-    local lowLevelThresholdInput = AceGUI:Create("EditBox")
-    lowLevelThresholdInput.frame:SetParent(parent)
-    lowLevelThresholdInput.frame:ClearAllPoints()
-    lowLevelThresholdInput:SetPoint("TOPLEFT", lowLevelCheck.frame, "BOTTOMLEFT", 2, -4)
-    lowLevelThresholdInput:SetLabel("Levels below the equipped item in that slot")
-    lowLevelThresholdInput:SetWidth(200)
-    lowLevelThresholdInput:SetCallback("OnEnterPressed", function(_, _, value)
-        local num = tonumber(value or "")
-        if num and num >= 0 then
-            WriteSetting(self, "lowLevelThreshold", num)
-        end
-    end)
-    detail.lowLevelThresholdInput = lowLevelThresholdInput
 
     local values, order = SortFieldLists()
 

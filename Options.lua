@@ -225,8 +225,8 @@ local options = {
                     type = "description",
                     order = 1,
                     fontSize = "medium",
-                    name = "Drag categories into the order you want them to be in your bags. Select a category to "
-                        .. "change how items inside it are sorted.\n",
+                    name = "Drag categories into the order you want them to be in your bags.\n"
+                        .. "Select a category to change how items inside it are sorted.\n",
                 },
                 categoryOrder = {
                     type = "input",
@@ -256,8 +256,8 @@ local options = {
                     type = "description",
                     order = 1,
                     fontSize = "medium",
-                    name = "Drag categories into the order you want them to be in your bank. Select a category to "
-                        .. "change how items inside it are sorted.\n",
+                    name = "Drag categories into the order you want them to be in your bank.\n"
+                        .. "Select a category to change how items inside it are sorted.\n",
                 },
                 categoryOrder = {
                     type = "input",
@@ -275,6 +275,66 @@ local options = {
                         end
                         ns.SetBankCategoryOrder(order)
                     end,
+                },
+            },
+        },
+        junk = {
+            type = "group",
+            order = 40,
+            name = "Junk",
+            get = Get,
+            set = function(info, value) ns.SetJunkOption(info[#info], value) end,
+            args = {
+                note = {
+                    type = "description",
+                    order = 1,
+                    fontSize = "medium",
+                    name = "Poor quality items always go to the Junk category.\n",
+                },
+                treatAsJunk = {
+                    type = "group",
+                    order = 2,
+                    inline = true,
+                    name = "Treat as Junk",
+                    args = {
+                        includeVendor = {
+                            type = "toggle",
+                            order = 1,
+                            width = "full",
+                            name = "Include Vendor addon's sell/destroy list",
+                            desc = "Items the Vendor addon will sell or destroy is treated as Junk.",
+                            disabled = function() return not ns.VendorAPI() end,
+                        },
+                        includeUnusableSoulbound = {
+                            type = "toggle",
+                            order = 2,
+                            width = "full",
+                            name = "Unusable soulbound items",
+                            desc = "Soulbound armor of a type your character cannot wear is treated as Junk.",
+                        },
+                    },
+                },
+                lowLevel = {
+                    type = "group",
+                    order = 4,
+                    inline = true,
+                    name = "Low Level Soulbound",
+                    args = {
+                        includeLowLevel = {
+                            type = "toggle",
+                            order = 1,
+                            width = "full",
+                            name = "Include Low Level Soulbound Items",
+                            desc = "Soulbound gear far below the item level you wear in that slot is treated as Junk.",
+                        },
+                        lowLevelThreshold = {
+                            type = "range",
+                            order = 2,
+                            name = "Item levels below equipped",
+                            desc = "How many item levels below the item you wear in that slot counts as low level.",
+                            min = 0, softMax = 200, step = 1,
+                        },
+                    },
                 },
             },
         },

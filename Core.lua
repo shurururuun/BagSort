@@ -212,7 +212,7 @@ local DEFAULT_CATEGORY_SETTINGS = {
 
 -- per-category sort order overrides for a default profile
 local BUILTIN_CATEGORY_SETTINGS = {
-    [JUNK_CATEGORY_KEY] = { primary = "value", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD, includeUnusableSoulbound = false, includeLowLevel = false, lowLevelThreshold = 50, includeVendor = true },
+    [JUNK_CATEGORY_KEY] = { primary = "value", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD },
     [HEARTHSTONE_CATEGORY_KEY] = {
         primary = "itemid", secondary = DISABLED_SORT_FIELD, tertiary = DISABLED_SORT_FIELD,
     },
@@ -248,6 +248,12 @@ local defaults = {
         bankSlotOrder        = "ltr",     -- ltr = slot 1 upwards, highest slow downwards
         honorBankTabSettings = true,      -- try to honor Blizzard bank tab settings
         bankCategoryGap      = false,     -- try leave one slot between categories (if space permits)
+
+        -- junk, the same for bags and bank
+        includeVendor            = true,  -- the Vendor addon's sell list is junk
+        includeUnusableSoulbound = false, -- bound armor of a type the character cannot wear is junk
+        includeLowLevel          = false, -- bound gear far below what is worn in its slot is junk
+        lowLevelThreshold        = 50,    -- how many item levels below counts as far
 
         -- bag categories and order
         categoryOrder        = {},
@@ -331,10 +337,7 @@ local function CategorySettingsFor(dbKey, key)
         for field, value in pairs(builtin) do settings[field] = value end
     end
     if override then
-        -- An override can name a field DEFAULT_CATEGORY_SETTINGS has no entry for - includeUnusableSoulbound,
-        -- includeLowLevel, lowLevelThreshold only ever reach the profile through Junk's own builtin, never
-        -- through the shared defaults, so a loop that only walked DEFAULT_CATEGORY_SETTINGS silently dropped
-        -- every override for them: the value round-tripped to disk but never back into settings.
+        -- walks settings, not DEFAULT_CATEGORY_SETTINGS, so a field only a builtin carries can be overridden too
         for field in pairs(settings) do
             if override[field] ~= nil then settings[field] = override[field] end
         end
@@ -454,6 +457,9 @@ local function RebuildScope(scope, orderKey, settingsKey)
     local junk = CategorySettingsFor(settingsKey, JUNK_CATEGORY_KEY)
     S.junkEnabled = junk.enabled and rankOf[JUNK_CATEGORY_KEY] ~= nil
     S.junkRank, S.junkSettings = rankOf[JUNK_CATEGORY_KEY], junk
+    local db = DB()
+    S.junkVendor, S.junkUnusableSoulbound = db.includeVendor, db.includeUnusableSoulbound
+    S.junkLowLevel, S.junkLowLevelThreshold = db.includeLowLevel, db.lowLevelThreshold
 
     local hearthstone = CategorySettingsFor(settingsKey, HEARTHSTONE_CATEGORY_KEY)
     S.hearthstoneEnabled = hearthstone.enabled and rankOf[HEARTHSTONE_CATEGORY_KEY] ~= nil
@@ -715,8 +721,8 @@ end
 local function EffectiveRank(itemID, classID, quality, bound, gearSet, vendorJunk, subclassID, ilvl, equipLoc, S)
     DebugDetail("ilvl: item %d, class %s:%s, quality %d, bound %s, ilvl %d - junkEnabled %s, includeLowLevel %s, threshold %s",
         itemID, tostring(classID), tostring(subclassID), quality or -1, tostring(bound), ilvl or -1,
-        tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkSettings.includeLowLevel),
-        tostring(S.junkEnabled and S.junkSettings.lowLevelThreshold))
+        tostring(S.junkEnabled), tostring(S.junkEnabled and S.junkLowLevel),
+        tostring(S.junkEnabled and S.junkLowLevelThreshold))
 
     -- player's own custom categories win over every other category
     for _, custom in ipairs(S.customCategories) do
@@ -726,11 +732,11 @@ local function EffectiveRank(itemID, classID, quality, bound, gearSet, vendorJun
 
     if S.hearthstoneEnabled and HEARTHSTONE_ITEM_IDS[itemID] then return S.hearthstoneRank, S.hearthstoneSettings end
     if S.gearSetEnabled and gearSet then return S.gearSetRank, S.gearSetSettings end
-    if S.junkEnabled and S.junkSettings.includeVendor and vendorJunk then return S.junkRank, S.junkSettings end
-    if S.junkEnabled and S.junkSettings.includeUnusableSoulbound and IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc) then
+    if S.junkEnabled and S.junkVendor and vendorJunk then return S.junkRank, S.junkSettings end
+    if S.junkEnabled and S.junkUnusableSoulbound and IsUnusableSoulboundArmor(classID, subclassID, bound, equipLoc) then
         return S.junkRank, S.junkSettings
     end
-    if S.junkEnabled and S.junkSettings.includeLowLevel and IsLowLevelSoulbound(itemID, ilvl, bound, gearSet, S.junkSettings.lowLevelThreshold, equipLoc) then
+    if S.junkEnabled and S.junkLowLevel and IsLowLevelSoulbound(itemID, ilvl, bound, gearSet, S.junkLowLevelThreshold, equipLoc) then
         return S.junkRank, S.junkSettings
     end
     if S.soulboundEnabled and bound and (classID == ARMOR_CLASS or classID == WEAPON_CLASS) then
@@ -1241,8 +1247,25 @@ ns.DetectBankType, ns.GuildBankOpen = DetectBankType, GuildBankOpen
 -- Lifecycle --
 -- ========= --
 
+-- the junk options used to live in the Junk category's own settings, once for the bags and once for the bank:
+-- the bag copy is moved up to the profile, the bank copy is dropped
+local JUNK_OPTIONS = { "includeVendor", "includeUnusableSoulbound", "includeLowLevel", "lowLevelThreshold" }
+local function MigrateJunkOptions()
+    local db = DB()
+    for _, dbKey in ipairs({ "bankCategorySettings", "categorySettings" }) do
+        local junk = type(db[dbKey]) == "table" and db[dbKey][JUNK_CATEGORY_KEY]
+        if type(junk) == "table" then
+            for _, field in ipairs(JUNK_OPTIONS) do
+                if junk[field] ~= nil and dbKey == "categorySettings" then db[field] = junk[field] end
+                junk[field] = nil
+            end
+        end
+    end
+end
+
 function BagSort:OnInitialize()
     self.db = LibStub("AceDB-3.0"):New("BagSortDB", defaults, true)
+    MigrateJunkOptions()
 
     self.db.RegisterCallback(self, "OnProfileChanged", "OnProfileUpdate")
     self.db.RegisterCallback(self, "OnProfileCopied", "OnProfileUpdate")
@@ -1263,8 +1286,16 @@ end
 -- changing settings aborts a running sort
 function BagSort:OnProfileUpdate()
     if BagSort:IsSorting() then ns.StopSort("stopped, the settings changed.") end
+    MigrateJunkOptions()
     RebuildClassRank()
     ns.RefreshOptions()
+end
+
+-- used by the Junk tab of the options panel
+function ns.SetJunkOption(field, value)
+    if BagSort:IsSorting() then ns.StopSort("stopped, the junk settings changed.") end
+    DB()[field] = value
+    RebuildClassRank()
 end
 
 -- used by the bag tab of the options panel
