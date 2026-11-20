@@ -705,7 +705,7 @@ local function FitsBag(it, bag, family)
     and band(meta.family, family) ~= 0 then
         return true
     end
-    if bag == REAGENT_BAG then return IsCraftingReagent(it.itemID) end
+    if bag == REAGENT_BAG and family == 0 then return IsCraftingReagent(it.itemID) end
     return false
 end
 
