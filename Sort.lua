@@ -374,6 +374,27 @@ local function SlotHolds(bag, slot, itemID, count)
     return (tonumber(info.stackCount) or 1) == count
 end
 
+-- listen to the client for what a restricted bag takes
+local function NoteRefusal(mv)
+    local family = BagFamily(mv.dBag)
+    local info = Container.GetContainerItemInfo(mv.sBag, mv.sSlot)
+    BagSort:Printf("|cffff4040ERROR: bag %d (family %d) refused|r %s", mv.dBag,
+        family, info and info.hyperlink or ("ZZitem " .. mv.itemID))
+    if mv.relocation then refused[RefusedKey(mv.itemID, mv.dBag, family)] = true end
+end
+
+-- client can empty the curson on its own and put the item back
+-- check for relocations that left both slots as they were and note a refusal
+local function CheckMoves()
+    for _, mv in ipairs(run.sent) do
+        if SlotHolds(mv.sBag, mv.sSlot, mv.itemID, mv.sCount)
+        and SlotHolds(mv.dBag, mv.dSlot, mv.dItemID, mv.dCount) then
+            NoteRefusal(mv)
+        end
+    end
+    run.sent = {}
+end
+
 local function WaitForLocks()
     run.waits = run.waits + 1
     if run.waits > LOCK_RETRIES then Finish("stopped, the bags stayed locked.") end
@@ -445,6 +466,7 @@ local function PlanBankRelocate()
     local items, locked = Scan(destPositions)
     if locked then return WaitForLocks() end
     run.waits = 0
+    CheckMoves()
 
     -- every other tab is a candidate source, including ones already processed
     local otherBags = {}
@@ -602,6 +624,7 @@ local function Plan()
     local items, locked = Scan(run.positions)
     if locked then return WaitForLocks() end
     run.waits = 0
+    CheckMoves()
 
     run.pass = run.pass + 1
     if run.pass > MAX_PASSES then
@@ -670,15 +693,13 @@ local function ExecuteMove(mv)
     Container.PickupContainerItem(mv.dBag, mv.dSlot)
     if CursorHasItem() then
         ClearCursor()
-        -- listen to the client for what a restricted bag takes
-        if mv.relocation then
-            refused[RefusedKey(mv.itemID, mv.dBag, BagFamily(mv.dBag))] = true
-            Debug("bag %d does not take item %d", mv.dBag, mv.itemID)
-        end
+        NoteRefusal(mv)
         Debug("could not drop into bag %d slot %d, replanning", mv.dBag, mv.dSlot)
         return false, true
     end
 
+    -- the move can still bounce
+    if mv.relocation then run.sent[#run.sent + 1] = mv end
     return true
 end
 
@@ -925,7 +946,7 @@ local function StartRun(groups, scope, bankType, relocate, onlyTabBagID)
             started = GetTime(),
             scope = scope, bankType = bankType, resume = beginResume,
             relocTabs = relocTabs, relocSources = relocSources, relocIndex = 1, relocating = relocating,
-            bankSettledBagSet = {},
+            bankSettledBagSet = {}, sent = {},
             -- the failsafe's own bookkeeping, see BagSort:Watchdog
             stallMoves = 0, stalls = 0, nudges = 0 }
     run.positions = Positions(groups[1])
